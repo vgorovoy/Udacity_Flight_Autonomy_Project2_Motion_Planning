@@ -1,6 +1,7 @@
 from enum import Enum
 from queue import PriorityQueue
 import numpy as np
+from math import sqrt
 
 
 def create_grid(data, drone_altitude, safety_distance):
@@ -50,11 +51,34 @@ class Action(Enum):
     to the current grid position. The third and final value
     is the cost of performing the action.
     """
+    DIAGONAL_COST = sqrt(2)
 
-    WEST = (0, -1, 1)
-    EAST = (0, 1, 1)
-    NORTH = (-1, 0, 1)
-    SOUTH = (1, 0, 1)
+    LEFT = (0, -1, 1)
+    RIGHT = (0, 1, 1)
+    UP = (-1, 0, 1)
+    DOWN = (1, 0, 1)
+    UPPERLEFT = (-1, -1, DIAGONAL_COST)
+    UPPERRIGHT = (-1, 1, DIAGONAL_COST)
+    LOWERLEFT = (1, -1, DIAGONAL_COST)
+    LOWERRIGHT = (1, 1, DIAGONAL_COST)
+
+    def __str__(self):
+        if self == self.LEFT:
+            return '<'
+        elif self == self.RIGHT:
+            return '>'
+        elif self == self.UP:
+            return '^'
+        elif self == self.DOWN:
+            return 'v'
+        elif self == self.UPPERRIGHT:
+            return '⬈'
+        elif self == self.UPPERLEFT:
+            return '⬉'
+        elif self == self.LOWERRIGHT:
+            return '⬊'
+        elif self == self.LOWERLEFT:
+            return '⬋'
 
     @property
     def cost(self):
@@ -69,23 +93,50 @@ def valid_actions(grid, current_node):
     """
     Returns a list of valid actions given a grid and current node.
     """
-    valid_actions = list(Action)
+    valid = {Action.UP, Action.LEFT, Action.RIGHT, Action.DOWN, Action.UPPERLEFT,
+             Action.UPPERRIGHT, Action.LOWERLEFT, Action.LOWERRIGHT}
+    #     valid = {Action.UP, Action.LEFT, Action.RIGHT, Action.DOWN}
+
     n, m = grid.shape[0] - 1, grid.shape[1] - 1
     x, y = current_node
 
     # check if the node is off the grid or
     # it's an obstacle
 
-    if x - 1 < 0 or grid[x - 1, y] == 1:
-        valid_actions.remove(Action.NORTH)
-    if x + 1 > n or grid[x + 1, y] == 1:
-        valid_actions.remove(Action.SOUTH)
-    if y - 1 < 0 or grid[x, y - 1] == 1:
-        valid_actions.remove(Action.WEST)
-    if y + 1 > m or grid[x, y + 1] == 1:
-        valid_actions.remove(Action.EAST)
+    if x - 1 < 0:
+        valid.remove(Action.UP)
+        valid.discard(Action.UPPERLEFT)
+        valid.discard(Action.UPPERRIGHT)
+    if x - 1 >= 0 and grid[x - 1, y] == 1:
+        valid.remove(Action.UP)
+    if x + 1 > n:
+        valid.discard(Action.DOWN)
+        valid.discard(Action.LOWERLEFT)
+        valid.discard(Action.LOWERRIGHT)
+    if x + 1 <= n and grid[x + 1, y] == 1:
+        valid.discard(Action.DOWN)
+    if y - 1 < 0:
+        valid.remove(Action.LEFT)
+        valid.discard(Action.UPPERLEFT)
+        valid.discard(Action.LOWERLEFT)
+    if y - 1 >= 0 and grid[x, y - 1] == 1:
+        valid.remove(Action.LEFT)
+    if y + 1 > m:
+        valid.remove(Action.RIGHT)
+        valid.discard(Action.UPPERRIGHT)
+        valid.discard(Action.LOWERRIGHT)
+    if y + 1 <= m and grid[x, y + 1] == 1:
+        valid.remove(Action.RIGHT)
+    if x - 1 >= 0 and y - 1 >= 0 and grid[x - 1, y - 1] == 1:
+        valid.discard(Action.UPPERLEFT)
+    if x - 1 >= 0 and y + 1 <= m and grid[x - 1, y + 1] == 1:
+        valid.discard(Action.UPPERRIGHT)
+    if x + 1 <= n and y - 1 >= 0 and grid[x + 1, y - 1] == 1:
+        valid.discard(Action.LOWERLEFT)
+    if x + 1 <= n and y + 1 <= m and grid[x + 1, y + 1] == 1:
+        valid.discard(Action.LOWERRIGHT)
 
-    return valid_actions
+    return valid
 
 
 def a_star(grid, h, start, goal):
@@ -144,3 +195,27 @@ def a_star(grid, h, start, goal):
 def heuristic(position, goal_position):
     return np.linalg.norm(np.array(position) - np.array(goal_position))
 
+def point(p):
+    return np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+def collinearity_check(p1, p2, p3, epsilon=1e-6):
+    m = np.concatenate((p1, p2, p3), 0)
+    det = np.linalg.det(m)
+    return abs(det) < epsilon
+
+def prune_path(path):
+    if path is not None:
+        pruned_path = [p for p in path]
+        points2remove = set()
+        #         i_start = 0
+        i_end = 2
+        if len(pruned_path) > 2:
+            while i_end < len(pruned_path):
+                if collinearity_check(point(pruned_path[i_end - 2]), point(pruned_path[i_end - 1]),
+                                      point(pruned_path[i_end])):
+                    points2remove.add(pruned_path[i_end - 1])
+                i_end += 1
+        pruned_path = [p for p in pruned_path if p not in points2remove]
+    else:
+        pruned_path = path
+    return pruned_path
